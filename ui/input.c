@@ -1,6 +1,3 @@
-
-/* refer from https://github.com/brenns10/lsh */
-
 #include <assert.h>
 #include <pthread.h>
 #include <sys/prctl.h>
@@ -22,6 +19,7 @@
 
 #define TOY_TOK_BUFSIZE 64
 #define TOY_TOK_DELIM " \t\r\n\a"
+#define TOY_BUFFSIZE 1024
 
 typedef struct _sig_ucontext {
     unsigned long uc_flags;
@@ -30,6 +28,9 @@ typedef struct _sig_ucontext {
     struct sigcontext uc_mcontext;
     sigset_t uc_sigmask;
 } sig_ucontext_t;
+
+static pthread_mutex_t global_message_mutex  = PTHREAD_MUTEX_INITIALIZER;
+static char global_message[TOY_BUFFSIZE];
 
 void segfault_handler(int sig_num, siginfo_t * info, void * ucontext) {
   void * array[50];
@@ -87,17 +88,20 @@ void *sensor_thread(void* arg)
  */
 
 int toy_send(char **args);
+int toy_mutex(char **args);
 int toy_shell(char **args);
 int toy_exit(char **args);
 
 char *builtin_str[] = {
     "send",
+    "mu",
     "sh",
     "exit"
 };
 
 int (*builtin_func[]) (char **) = {
     &toy_send,
+    &toy_mutex,
     &toy_shell,
     &toy_exit
 };
@@ -111,6 +115,19 @@ int toy_send(char **args)
 {
     printf("send message: %s\n", args[1]);
 
+    return 1;
+}
+
+int toy_mutex(char **args)
+{
+    if (args[1] == NULL) {
+        return 1;
+    }
+
+    printf("save message: %s\n", args[1]);
+    pthread_mutex_lock(&global_message_mutex);
+    strcpy(global_message, args[1]);
+    pthread_mutex_unlock(&global_message_mutex);
     return 1;
 }
 
@@ -132,10 +149,8 @@ int toy_shell(char **args)
         exit(EXIT_FAILURE);
     } else if (pid < 0) {
         perror("toy");
-    } else
-{
-        do
-        {
+    } else {
+        do {
             waitpid(pid, &status, WUNTRACED);
         } while (!WIFEXITED(status) && !WIFSIGNALED(status));
     }
@@ -220,7 +235,6 @@ void toy_loop(void)
         line = toy_read_line();
         args = toy_split_line(line);
         status = toy_execute(args);
-
         free(line);
         free(args);
     } while (status);
@@ -237,11 +251,57 @@ void *command_thread(void* arg)
     return 0;
 }
 
+// lab 9: 토이 생산자 소비자 실습
+// 임시로 추가
+#define MAX 30
+#define NUMTHREAD 3 /* number of threads */
+
+char buffer[TOY_BUFFSIZE];
+int read_count = 0, write_count = 0;
+int buflen;
+pthread_mutex_t count_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
+int thread_id[NUMTHREAD] = {0, 1, 2};
+int producer_count = 0, consumer_count = 0;
+
+void *toy_consumer(int *id)
+{
+    pthread_mutex_lock(&count_mutex);
+    while (consumer_count < MAX) {
+        pthread_cond_wait(&empty, &count_mutex);
+        // 큐에서 하나 꺼낸다.
+        printf("                           소비자[%d]: %c\n", *id, buffer[read_count]);
+        read_count = (read_count + 1) % TOY_BUFFSIZE;
+        fflush(stdout);
+        consumer_count++;
+    }
+    pthread_mutex_unlock(&count_mutex);
+}
+
+void *toy_producer(int *id)
+{
+    while (producer_count < MAX) {
+        pthread_mutex_lock(&count_mutex);
+        strcpy(buffer, "");
+        buffer[write_count] = global_message[write_count % buflen];
+        // 큐에 추가한다.
+        printf("%d - 생산자[%d]: %c \n", producer_count, *id, buffer[write_count]);
+        fflush(stdout);
+        write_count = (write_count + 1) % TOY_BUFFSIZE;
+        producer_count++;
+        pthread_cond_signal(&empty);
+        pthread_mutex_unlock(&count_mutex);
+        sleep(rand() % 3);
+    }
+}
+
 int input()
 {
     int retcode;
     struct sigaction sa;
     pthread_t command_thread_tid, sensor_thread_tid;
+    int i;
+    pthread_t thread[NUMTHREAD];
 
     printf("나 input 프로세스!\n");
 
@@ -253,8 +313,24 @@ int input()
 
     sigaction(SIGSEGV, &sa, NULL); /* ignore whether it works or not */
 
-    pthread_create(&command_thread_tid, NULL, command_thread, "command_thread\n");
-    pthread_create(&sensor_thread_tid, NULL, segfault_handler, "segfault_handler\n");
+   /* 여기서 스레드를 생성한다. */
+    retcode = pthread_create(&command_thread_tid, NULL, command_thread, "command thread\n");
+    assert(retcode == 0);
+    retcode = pthread_create(&sensor_thread_tid, NULL, sensor_thread, "sensor thread\n");
+    assert(retcode == 0);
+
+    /* 생산자 소비자 실습 */
+    pthread_mutex_lock(&global_message_mutex);
+    strcpy(global_message, "hello world!");
+    buflen = strlen(global_message);
+    pthread_mutex_unlock(&global_message_mutex);
+    pthread_create(&thread[0], NULL, (void *)toy_consumer, &thread_id[0]);
+    pthread_create(&thread[1], NULL, (void *)toy_producer, &thread_id[1]);
+    pthread_create(&thread[2], NULL, (void *)toy_producer, &thread_id[2]);
+
+    for (i = 0; i < NUMTHREAD; i++) {
+        pthread_join(thread[i], NULL);
+    }
 
     while (1) {
         sleep(1);

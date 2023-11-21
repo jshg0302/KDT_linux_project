@@ -10,12 +10,20 @@
 #include <gui.h>
 #include <input.h>
 #include <web_server.h>
+#include <camera_HAL.h>
+
+pthread_mutex_t system_loop_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t  system_loop_cond  = PTHREAD_COND_INITIALIZER;
+bool            system_loop_exit = false;    ///< true if main loop should exit
 
 static int toy_timer = 0;
+
+void signal_exit(void);
 
 static void timer_expire_signal_handler()
 {
     toy_timer++;
+    signal_exit();
 }
 
 void set_periodic_timer(long sec_delay, long usec_delay)
@@ -83,11 +91,23 @@ void *camera_service_thread(void* arg)
 
     printf("%s", s);
 
+   toy_camera_open();
+   toy_camera_take_picture();
+
     while (1) {
         posix_sleep_ms(5000);
     }
 
     return 0;
+}
+
+void signal_exit(void)
+{
+    /* 여기에 구현하세요..  종료 메시지를 보내도록.. */
+    pthread_mutex_lock(&system_loop_mutex);
+    system_loop_exit = true;
+    pthread_cond_broadcast(&system_loop_cond);
+    pthread_mutex_unlock(&system_loop_mutex);
 }
 
 int system_server()
@@ -101,18 +121,32 @@ int system_server()
 
     printf("나 system_server 프로세스!\n");
 
-    /* 5초 타이머를 만들어 봅시다. */
     signal(SIGALRM, timer_expire_signal_handler);
-    /* 5초 타이머 등록 */
-    set_periodic_timer(5, 0);
+    /* 10초 타이머 등록 */
+    set_periodic_timer(10, 0);
 
-    /* watchdog, monitor, disk_service, camera_service 스레드를 생성한다. */
-    pthread_create(&watchdog_thread_tid, NULL, watchdog_thread, "watchdog_thread\n");
-    pthread_create(&monitor_thread_tid, NULL, monitor_thread, "monitor_thread\n");
-    pthread_create(&disk_service_thread_tid, NULL, disk_service_thread, "disk_service_thread thread\n");
-    pthread_create(&camera_service_thread_tid, NULL, camera_service_thread, "camera_service_thread\n");
+    /* 스레드를 생성한다. */
+    retcode = pthread_create(&watchdog_thread_tid, NULL, watchdog_thread, "watchdog thread\n");
+    assert(retcode == 0);
+    retcode = pthread_create(&monitor_thread_tid, NULL, monitor_thread, "monitor thread\n");
+    assert(retcode == 0);
+    retcode = pthread_create(&disk_service_thread_tid, NULL, disk_service_thread, "disk service thread\n");
+    assert(retcode == 0);
+    retcode = pthread_create(&camera_service_thread_tid, NULL, camera_service_thread, "camera service thread\n");
+    assert(retcode == 0);
 
     printf("system init done.  waiting...");
+
+    // 여기에 구현하세요... 여기서 cond wait로 대기한다. 10초 후 알람이 울리면 <== system 출력
+    // /* 1초 마다 wake-up 한다 */
+
+    pthread_mutex_lock(&system_loop_mutex);
+    while (system_loop_exit == false) {
+        pthread_cond_wait(&system_loop_cond, &system_loop_mutex);
+    }
+    pthread_mutex_unlock(&system_loop_mutex);
+    printf("<== system\n");
+
     while (1) {
         sleep(1);
     }
