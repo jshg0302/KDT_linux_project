@@ -87,6 +87,12 @@ void *disk_service_thread(void* arg)
          * 향후 파일 관련 시스템 콜 시간에 개선,
          * 하지만 가끔 빠르게 테스트 프로그램 또는 프로토 타입 시스템 작성 시 유용
          */
+        apipe = popen(cmd, "r");
+        while (fgets(buf, 1024, apipe))
+        {
+            printf("%s", buf);
+        }
+        pclose(apipe);
 
         posix_sleep_ms(10000);
     }
