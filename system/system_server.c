@@ -104,10 +104,7 @@ void *camera_service_thread(void* arg)
 void signal_exit(void)
 {
     /* 여기에 구현하세요..  종료 메시지를 보내도록.. */
-    pthread_mutex_lock(&system_loop_mutex);
     system_loop_exit = true;
-    pthread_cond_broadcast(&system_loop_cond);
-    pthread_mutex_unlock(&system_loop_mutex);
 }
 
 int system_server()
@@ -139,13 +136,9 @@ int system_server()
 
     // 여기에 구현하세요... 여기서 cond wait로 대기한다. 10초 후 알람이 울리면 <== system 출력
     // /* 1초 마다 wake-up 한다 */
-
-    pthread_mutex_lock(&system_loop_mutex);
     while (system_loop_exit == false) {
-        pthread_cond_wait(&system_loop_cond, &system_loop_mutex);
+        sleep(1);
     }
-    pthread_mutex_unlock(&system_loop_mutex);
-    printf("<== system\n");
 
     while (1) {
         sleep(1);
