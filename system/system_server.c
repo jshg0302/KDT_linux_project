@@ -22,10 +22,10 @@
 #include <gui.h>
 #include <input.h>
 #include <web_server.h>
-#include <camera_HAL.h>
 #include <toy_message.h>
 #include <shared_memory.h>
-// #include <dump_state.h>
+#include <dump_state.h>
+#include <hardware.h>
 
 #define BUF_LEN 1024
 #define TOY_TEST_FS "./fs"
@@ -153,8 +153,7 @@ void *monitor_thread(void* arg)
             printf("sensor humidity: %d\n", the_sensor_info->humidity);
             toy_shm_detach(the_sensor_info);
         } else if (msg.msg_type == DUMP_STATE) {
-            // 여기에 dumpstate를 구현해 주세요.
-            // dumpstate();
+            dumpstate();
         } else {
             printf("monitor_thread: unknown message. xxx\n");
         }
@@ -245,10 +244,17 @@ void *camera_service_thread(void* arg)
     char *s = arg;
     int mqretcode;
     toy_msg_t msg;
+    hw_module_t *module = NULL;
+    int res;
 
     printf("%s", s);
-
-   toy_camera_open();
+    // 여기서 동적으로 심볼을 로딩 합니다.
+    res = hw_get_camera_module((const hw_module_t **)&module);
+    assert(res == 0);
+    printf("Camera module name: %s\n", module->name);
+    printf("Camera module tag: %d\n", module->tag);
+    printf("Camera module id: %s\n", module->id);
+    module->open();
 
     while (1) {
         mqretcode = (int)mq_receive(camera_queue, (void *)&msg, sizeof(toy_msg_t), 0);
@@ -258,9 +264,9 @@ void *camera_service_thread(void* arg)
         printf("msg.param1: %d\n", msg.param1);
         printf("msg.param2: %d\n", msg.param2);
         if (msg.msg_type == CAMERA_TAKE_PICTURE) {
-            toy_camera_take_picture();
+            module->take_picture();
         } else if (msg.msg_type == DUMP_STATE) {
-            toy_camera_dump();
+            module->dump();
         } else {
             printf("camera_service_thread: unknown message. xxx\n");
         }
@@ -288,7 +294,6 @@ int system_server()
     pthread_t timer_thread_tid;
 
     printf("나 system_server 프로세스!\n");
-
 
     /* 메시지 큐를 오픈한다. */
     watchdog_queue = mq_open("/watchdog_queue", O_RDWR);
