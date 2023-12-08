@@ -125,6 +125,7 @@ int toy_message_queue(char **args);
 int toy_read_elf_header(char **args);
 int toy_dump_state(char **args);
 int toy_mincore(char **args);
+int toy_busy(char **args);
 int toy_exit(char **args);
 
 char *builtin_str[] = {
@@ -135,6 +136,7 @@ char *builtin_str[] = {
     "elf",
     "dump",
     "mincore",
+    "busy",
     "exit"
 };
 
@@ -146,6 +148,7 @@ int (*builtin_func[]) (char **) = {
     &toy_read_elf_header,
     &toy_dump_state,
     &toy_mincore,
+    &toy_busy,
     &toy_exit
 };
 
@@ -258,6 +261,13 @@ int toy_mincore(char **args)
     res = mincore(addr, 10 * page, vec);
     assert(res == 0);
 
+    return 1;
+}
+
+int toy_busy(char **args)
+{
+    while (1)
+        ;
     return 1;
 }
 

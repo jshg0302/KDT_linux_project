@@ -31,6 +31,9 @@ static int child_func(void *arg)
     printf(" - [%4d] Current namspace, Parent PID : %d\n", getpid(), getppid() );
     printf("current working directory: %s\n", path);
 
+    // 파일 시스템 완전 격리를 위해서는 pivot_root 필요
+    // https://zbvs.tistory.com/14
+
     if (execl("/usr/local/bin/filebrowser", "filebrowser", "-p", "8282", (char *) NULL)) {
         printf("execfailed\n");
     }
