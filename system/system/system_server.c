@@ -38,6 +38,7 @@ static mqd_t watchdog_queue;
 static mqd_t monitor_queue;
 static mqd_t disk_queue;
 static mqd_t camera_queue;
+static mqd_t engine_queue;
 
 static int toy_timer = 0;
 pthread_mutex_t toy_timer_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -237,6 +238,27 @@ void *disk_service_thread(void* arg)
     return 0;
 }
 
+void *engine_thread(void* arg)
+{
+    char *s = arg;
+    int mqretcode;
+    toy_msg_t msg;
+    int res;
+
+    printf("%s", s);
+
+    while (1) {
+        mqretcode = (int)mq_receive(engine_queue, (void *)&msg, sizeof(toy_msg_t), 0);
+        assert(mqretcode >= 0);
+        printf("engine_service_thread: 메시지가 도착했습니다.\n");
+        printf("msg.type: %d\n", msg.msg_type);
+        printf("msg.param1: %d\n", msg.param1);
+        printf("msg.param2: %d\n", msg.param2);
+    }
+
+    return 0;
+}
+
 #define CAMERA_TAKE_PICTURE 1
 
 void *camera_service_thread(void* arg)
@@ -291,7 +313,10 @@ int system_server()
     timer_t *tidlist;
     int retcode;
     pthread_t watchdog_thread_tid, monitor_thread_tid, disk_service_thread_tid, camera_service_thread_tid;
-    pthread_t timer_thread_tid;
+    pthread_t timer_thread_tid, engine_thread_tid;
+    pthread_attr_t attr;
+    struct sched_param sched_param;
+    char short_thread_name[16] = "un-named";
 
     printf("나 system_server 프로세스!\n");
 
@@ -304,6 +329,8 @@ int system_server()
     assert(disk_queue != -1);
     camera_queue = mq_open("/camera_queue", O_RDWR);
     assert(camera_queue != -1);
+    engine_queue = mq_open("/engine_queue", O_RDWR);
+    assert(engine_queue != -1);
 
     /* 스레드를 생성한다. */
     retcode = pthread_create(&watchdog_thread_tid, NULL, watchdog_thread, "watchdog thread\n");
@@ -315,6 +342,19 @@ int system_server()
     retcode = pthread_create(&camera_service_thread_tid, NULL, camera_service_thread, "camera service thread\n");
     assert(retcode == 0);
     retcode = pthread_create(&timer_thread_tid, NULL, timer_thread, "timer thread\n");
+    assert(retcode == 0);
+
+    // engine thread는 real-time class로 생성
+    retcode = pthread_attr_init(&attr);
+	assert(retcode == 0);
+    retcode = pthread_attr_setschedpolicy(&attr, SCHED_RR);
+	assert(retcode == 0);
+    retcode = pthread_attr_getschedparam( &attr, &sched_param );
+	assert(retcode == 0);
+    sched_param.sched_priority = 50;
+    retcode = pthread_attr_setschedparam( &attr, &sched_param );
+    assert(retcode == 0);
+    retcode = pthread_create(&engine_thread_tid, &attr, engine_thread, "engine thread\n");
     assert(retcode == 0);
 
     printf("system init done.  waiting...");
